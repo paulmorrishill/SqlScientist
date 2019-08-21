@@ -1,20 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Data;
+﻿using System.Data;
 using System.Data.SqlClient;
 using System.Net.Http.Headers;
-using System.Reflection;
 using DapperExtensions;
 using NUnit.Framework;
 using Should;
+using SqlScientist;
 
 namespace SqlScientistTests
 {
-  public interface ISqlCommandFactory
-  {
-    IDbCommand CreateCommand(string query);
-  }
-  
   public class SqlComparatorTests : ISqlCommandFactory
   {
     private SqlComparator _comparator;
@@ -37,7 +30,7 @@ namespace SqlScientistTests
       _connection.Close();
       _connection.Dispose();
     }
-    
+    #region "Simple comparisons"
     [Test]
     public void CanCompareSingleIntegerSelectsWhenTheyAreIdentical()
     {
@@ -50,12 +43,6 @@ namespace SqlScientistTests
       AreSame("SELECT 1", "SELECT 2").ShouldBeFalse();
     }
 
-    [Test]
-    public void CanCompareSingleIntegerQueriesThatAreDifferentButProduceTheSameResult()
-    {
-      AreSame("SELECT 2", "SELECT 1 + 1").ShouldBeTrue();
-    }
-    
     [Test]
     public void CanCompareTwoIdenticalStringValues()
     {
@@ -88,6 +75,10 @@ namespace SqlScientistTests
       AreSame("SELECT 1, 1 UNION ALL SELECT 1, 1", "SELECT 1, 1 UNION ALL SELECT 1, 2").ShouldBeFalse();
     }
 
+    #endregion
+
+    #region Outputting collected query data
+
     [Test]
     public void CanReadQueryOutputFromSimpleSelect()
     {
@@ -112,22 +103,212 @@ namespace SqlScientistTests
       comparison.Output2.Rows[0].Values[0].ShouldEqual("test1");
     }
 
+    #endregion
+
+    #region "Column headers"
+    
     [Test]
     public void CanReadColumnHeadersFromQuery()
     {
-      var q = "SELECT 'test1' as 'Col1', 'test2'";
+      const string q = "SELECT 'test1' as 'Col1', 1";
       var comparison = _comparator.AreQueryOutputsIdentical(q, q);
       comparison.Output1.Columns[0].Name.ShouldEqual("Col1");
       comparison.Output1.Columns[0].DataType.ShouldEqual(typeof(string));
+      comparison.Output1.Columns[0].SqlDataType.ShouldEqual("varchar");
+      comparison.Output1.Columns[0].IsNullable.ShouldBeFalse();
       comparison.Output1.Columns[1].Name.ShouldEqual("");
+      comparison.Output1.Columns[1].DataType.ShouldEqual(typeof(int));
+      comparison.Output1.Columns[1].SqlDataType.ShouldEqual("int");      
+      comparison.Output1.Columns[1].IsNullable.ShouldBeFalse();
     }
+
+    [Test]
+    public void CanGetNullableColumns()
+    {
+      RunSql("CREATE TABLE TestEntity (IntColNullable int NULL)");
+      const string q = "SELECT * FROM TestEntity";
+      var comparison = _comparator.AreQueryOutputsIdentical(q, q);
+      comparison.Output1.Columns[0].DataType.ShouldEqual(typeof(int));
+      comparison.Output1.Columns[0].IsNullable.ShouldBeTrue();
+    }
+    
+    [Test]
+    public void CanGetColumnLengthsOfVaryingSizes()
+    {
+      RunSql("CREATE TABLE TestEntity (VarCharCol varchar(50))");
+      const string q = "SELECT * FROM TestEntity";
+      var comparison = _comparator.AreQueryOutputsIdentical(q, q);
+      comparison.Output1.Columns[0].DataType.ShouldEqual(typeof(string));
+      comparison.Output1.Columns[0].SqlDataType.ShouldEqual("varchar");
+      comparison.Output1.Columns[0].Size.ShouldEqual(50);
+    }
+    
+    [Test]
+    public void CanGetColumnLengthWhenColumnIsMaxLength()
+    {
+      RunSql("CREATE TABLE TestEntity (VarCharCol varchar(max))");
+      const string q = "SELECT * FROM TestEntity";
+      var comparison = _comparator.AreQueryOutputsIdentical(q, q);
+      comparison.Output1.Columns[0].DataType.ShouldEqual(typeof(string));
+      comparison.Output1.Columns[0].SqlDataType.ShouldEqual("varchar");
+      comparison.Output1.Columns[0].Size.ShouldEqual(2147483647);
+    }
+
+    [Test]
+    public void GivenColumnsAreSameItReturnsColumnsSame()
+    {
+      const string q = "SELECT '' as 'C1'";
+      var comparison = _comparator.AreQueryOutputsIdentical(q, q);
+      comparison.ComparisonSummary.ResultsAreIdentical.ShouldBeTrue();
+      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeTrue();
+      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(0);
+    }
+    
+    [Test]
+    public void CanOutputWhenColumnHeadersAreDifferent()
+    {
+      const string q1 = "SELECT '' as 'C1'";
+      const string q2 = "SELECT '' as 'C2'";
+      var comparison = _comparator.AreQueryOutputsIdentical(q1, q2);
+      comparison.ComparisonSummary.ResultsAreIdentical.ShouldBeFalse();
+      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();
+      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(1);
+      comparison.ComparisonSummary.ColumnDifferences[0].Index.ShouldEqual(0);
+      comparison.ComparisonSummary.ColumnDifferences[0].NameIsDifferent.ShouldBeTrue();
+      comparison.ComparisonSummary.ColumnDifferences[0].TypeIsDifferent.ShouldBeFalse();
+      comparison.ComparisonSummary.ColumnDifferences[0].NullabilityIsDifferent.ShouldBeFalse();
+    }
+
+    [Test]
+    public void CanOutputWhenColumnHeadersAreDifferentAfterTheFirst()
+    {
+      const string q1 = "SELECT '' as 'C1', '' AS 'C2'";
+      const string q2 = "SELECT '' as 'C1', '' AS 'C3'";
+      var comparison = _comparator.AreQueryOutputsIdentical(q1, q2);
+      comparison.ComparisonSummary.ResultsAreIdentical.ShouldBeFalse();
+      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();      
+      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(1);
+      comparison.ComparisonSummary.ColumnDifferences[0].Index.ShouldEqual(1);
+      comparison.ComparisonSummary.ColumnDifferences[0].NameIsDifferent.ShouldBeTrue();
+      comparison.ComparisonSummary.ColumnDifferences[0].TypeIsDifferent.ShouldBeFalse();
+    }
+    
+    [Test]
+    public void CanOutputWhenColumnHeadersAreDifferentInType()
+    {
+      const string q1 = "SELECT '0' as 'C1'";
+      const string q2 = "SELECT 0 as 'C1'";
+      var comparison = _comparator.AreQueryOutputsIdentical(q1, q2);
+      comparison.ComparisonSummary.ResultsAreIdentical.ShouldBeFalse();
+      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();      
+      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(1);
+      comparison.ComparisonSummary.ColumnDifferences[0].Index.ShouldEqual(0);
+      comparison.ComparisonSummary.ColumnDifferences[0].NameIsDifferent.ShouldBeFalse();
+      comparison.ComparisonSummary.ColumnDifferences[0].TypeIsDifferent.ShouldBeTrue();
+    }
+    
+    [Test]
+    public void CanOutputWhenColumnHeadersAreDifferentInNameAndType()
+    {
+      const string q1 = "SELECT '0' as 'C1'";
+      const string q2 = "SELECT 0 as 'C2'";
+      var comparison = _comparator.AreQueryOutputsIdentical(q1, q2);
+      comparison.ComparisonSummary.ResultsAreIdentical.ShouldBeFalse();
+      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();      
+      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(1);
+      comparison.ComparisonSummary.ColumnDifferences[0].Index.ShouldEqual(0);
+      comparison.ComparisonSummary.ColumnDifferences[0].NameIsDifferent.ShouldBeTrue();
+      comparison.ComparisonSummary.ColumnDifferences[0].TypeIsDifferent.ShouldBeTrue();
+    }
+
+    [Test]
+    public void CanOutputWhenColumnsHaveDifferentNullability()
+    {
+      var comparison = CompareTablesWithTheseColumns(
+        "IntColNullable int NULL", 
+        "IntColNullable int NOT NULL"
+      );
+      
+      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();
+      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(1);
+      comparison.ComparisonSummary.ColumnDifferences[0].NullabilityIsDifferent.ShouldBeTrue();
+    }
+    
+    [Test]
+    public void CanOutputWhenColumnsHaveDifferentSize()
+    {
+      var comparison = CompareTablesWithTheseColumns(
+        "VarCharCol nvarchar(100) NULL", 
+        "VarCharCol nvarchar(110) NULL"
+      );
+      
+      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();
+      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(1);
+      comparison.ComparisonSummary.ColumnDifferences[0].SizeIsDifferent.ShouldBeTrue();
+    }
+    
+    [Test]
+    public void CanOutputWhenColumnsHaveDifferentSqlDataTypeButSameDotNetDataType()
+    {
+      var comparison = CompareTablesWithTheseColumns(
+        "VarCharCol nvarchar(100)", 
+        "VarCharCol varchar(100)"
+      );
+      
+      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();
+      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(1);
+      comparison.ComparisonSummary.ColumnDifferences[0].TypeIsDifferent.ShouldBeTrue();
+    }
+    
+    [Test]
+    public void CanOutputWhenFirstQueryHasMoreColumns()
+    {
+      var comparison = CompareTablesWithTheseColumns(
+        "VarCharCol varchar(100), IntCol int", 
+        "VarCharCol varchar(100)"
+      );
+      
+      comparison.ComparisonSummary.ResultsAreIdentical.ShouldBeFalse();
+      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();
+      comparison.ComparisonSummary.ColumnCountMismatch.ShouldBeTrue();
+      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(0);
+    }
+    
+    [Test]
+    public void CanOutputWhenSecondQueryHasMoreColumns()
+    {
+      var comparison = CompareTablesWithTheseColumns(
+        "VarCharCol varchar(100)", 
+        "VarCharCol varchar(100), IntCol int"
+      );
+      
+      comparison.ComparisonSummary.ResultsAreIdentical.ShouldBeFalse();
+      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();
+      comparison.ComparisonSummary.ColumnCountMismatch.ShouldBeTrue();
+      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(0);
+    }
+
+    private ComparisonResult CompareTablesWithTheseColumns(string col1, string col2)
+    {
+      RunSql($"CREATE TABLE TestEntity1 ({col1})");
+      RunSql($"CREATE TABLE TestEntity2 ({col2})");
+      const string q1 = "SELECT * FROM TestEntity1";
+      const string q2 = "SELECT * FROM TestEntity2";
+
+      var comparison = _comparator.AreQueryOutputsIdentical(q1, q2);
+      return comparison;
+    }
+
+    #endregion
+    
     
     // TODO: Row count mismatch show missing rows from query 1
     // TODO: Row count mistmatch show missing rows from query 2
     // TODO: 
     private bool AreSame(string q1, string q2)
     {
-      return _comparator.AreQueryOutputsIdentical(q1, q2).AreSame;
+      var comparisonSummary = _comparator.AreQueryOutputsIdentical(q1, q2).ComparisonSummary;
+      return comparisonSummary.ResultsAreIdentical;
     }
 
     private void RunSql(string query)
@@ -141,157 +322,6 @@ namespace SqlScientistTests
     public IDbCommand CreateCommand(string query)
     {
       return new SqlCommand(query);
-    }
-  }
-
-  public class ComparisonResult
-  {
-    public QueryOutput Output1 { get; set; }
-    public QueryOutput Output2 { get; set; }
-    public ComparisonSummary ComparisonSummary { get; set; }
-    public bool AreSame { get; set; }
-
-    public ComparisonResult()
-    {
-    }
-  }
-
-  public class ComparisonSummary
-  {
-  }
-
-  public class SqlComparator
-  {
-    private IDbConnection _connection;
-    private ISqlCommandFactory _commandFactory;
-
-    public SqlComparator(IDbConnection connection, ISqlCommandFactory commandFactory)
-    {
-      _commandFactory = commandFactory;
-      _connection = connection;
-    }
-    
-    public ComparisonResult AreQueryOutputsIdentical(string query1, string query2)
-    {
-      using(var command1 = _commandFactory.CreateCommand(query1))
-      using (var command2 = _commandFactory.CreateCommand(query2))
-      {
-        const string returnParam = "@returnValue";
-        var returnValueParam1 = new SqlParameter(returnParam, SqlDbType.Int);
-        returnValueParam1.Direction = ParameterDirection.ReturnValue;
-        var returnValueParam2 = new SqlParameter(returnParam, SqlDbType.Int);
-        returnValueParam2.Direction = ParameterDirection.ReturnValue;
-
-        command1.Connection = _connection;
-        command2.Connection = _connection;
-
-        command1.Parameters.Add(returnValueParam1);
-        command2.Parameters.Add(returnValueParam2);
-
-        var command1Output = ReadOutput(command1);
-        var command2Output = ReadOutput(command2);
-        
-        var comparisonOutput = new ComparisonResult
-        {
-          AreSame = false,
-          Output1 = command1Output,
-          Output2 = command2Output
-        };
-        
-        //var result1 = returnValueParam1.Value;
-        //var result2 = returnValueParam2.Value;
-        for (var r = 0; r < command1Output.Rows.Count; r++)
-        {
-          var row1 = command1Output.Rows[r];
-          var row2 = command2Output.Rows[r];
-          for(var i = 0; i < row1.Values.Count; i++)
-          {
-            var result1 = row1.Values[i];
-            var result2 = row2.Values[i];
-            var valuesAreSame = AreOutputsSame(result1, result2);
-            if (!valuesAreSame)
-            {
-              comparisonOutput.AreSame = false;
-              return comparisonOutput;
-            }
-          }
-        }
-
-        comparisonOutput.AreSame = true;
-        return comparisonOutput;
-      }
-    }
-
-    private static bool AreOutputsSame(object result1, object result2)
-    {
-      if (result1.GetType() != result2.GetType())
-        return false;
-
-      if (result1 is string)
-      {
-        return (string) result1 == (string) result2;
-      }
-
-      return (int) result1 == (int) result2;
-    }
-
-    private static QueryOutput ReadOutput(IDbCommand command1)
-    {
-      var rows = new List<QueryRow>();
-      var headers = new List<ColumnInfo>();
-      using (var reader1 = command1.ExecuteReader())
-      {
-        var headerTable = reader1.GetSchemaTable();
-        for (var headerIndex = 0; headerIndex < headerTable.Rows.Count; headerIndex++)
-        {
-          var column = headerTable.Rows[headerIndex];
-          var columnName = column["ColumnName"].ToString();
-          headers.Add(new ColumnInfo
-          {
-            Name = columnName,
-            DataType = Assembly.GetAssembly(typeof(string)).GetType(column["DataType"].ToString())
-          });
-        }
-        
-        while (reader1.Read())
-        {
-          var result1 = new List<object>();
-          for (var column = 0; column < reader1.FieldCount; column++)
-          {
-            result1.Add(reader1.GetValue(column));
-          }
-          rows.Add(new QueryRow(result1));
-        }
-      }
-
-      return new QueryOutput
-      {
-        Rows = rows,
-        Columns = headers
-      };
-    }
-  }
-  
-  public class QueryOutput
-  {
-    public List<QueryRow> Rows = new List<QueryRow>();
-    public List<ColumnInfo> Columns { get; set; }
-  }
-
-  public class ColumnInfo
-  {
-    public string Name { get; set; }
-    public Type DataType { get; set; }
-    public Type SqlDataType { get; set; }
-  }
-
-  public class QueryRow
-  {
-    public readonly List<object> Values;
-
-    public QueryRow(List<object> columnValues)
-    {
-      Values = columnValues;
     }
   }
 }
