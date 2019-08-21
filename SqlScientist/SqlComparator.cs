@@ -17,7 +17,7 @@ namespace SqlScientist
       _connection = connection;
     }
     
-    public ComparisonResult AreQueryOutputsIdentical(string query1, string query2)
+    public ComparisonResult CompareQueryOutputs(string query1, string query2)
     {
       using(var command1 = _commandFactory.CreateCommand(query1))
       using (var command2 = _commandFactory.CreateCommand(query2))
@@ -62,18 +62,27 @@ namespace SqlScientist
     private static void CompareDataAndApplyToSummary(QueryOutput command1Output, QueryOutput command2Output,
       ComparisonSummary summary)
     {
-      for (var r = 0; r < command1Output.Rows.Count; r++)
+      for (var rowIndex = 0; rowIndex < command1Output.Rows.Count; rowIndex++)
       {
-        var row1 = command1Output.Rows[r];
-        var row2 = command2Output.Rows[r];
-        for (var i = 0; i < row1.Values.Count; i++)
+        var row1 = command1Output.Rows[rowIndex];
+        var row2 = command2Output.Rows[rowIndex];
+        for (var columnIndex = 0; columnIndex < row1.Values.Count; columnIndex++)
         {
-          var result1 = row1.Values[i];
-          var result2 = row2.Values[i];
+          var result1 = row1.Values[columnIndex];
+          var result2 = row2.Values[columnIndex];
           var valuesAreSame = AreOutputsSame(result1, result2);
           if (!valuesAreSame)
           {
             summary.ResultsAreIdentical = false;
+            var rowDifference = new RowDifference
+            {
+              RowIndex = rowIndex
+            };
+            rowDifference.CellDifferences.Add(new CellDifference
+            {
+              ColumnIndex = columnIndex
+            });
+            summary.DataDifferences.Add(rowDifference);
           }
         }
       }
