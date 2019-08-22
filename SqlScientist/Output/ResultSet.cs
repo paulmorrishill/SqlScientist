@@ -2,9 +2,9 @@ using System.Collections.Generic;
 
 namespace SqlScientist
 {
-  public class QueryOutput
+  public class ResultSet
   {
     public List<QueryRow> Rows = new List<QueryRow>();
-    public List<ColumnInfo> Columns { get; set; }
+    public List<ColumnInfo> Columns { get; set; } = new List<ColumnInfo>();
   }
 }

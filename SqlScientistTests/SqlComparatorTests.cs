@@ -1,4 +1,5 @@
-﻿using System.Data;
+﻿using System.Collections.Generic;
+using System.Data;
 using System.Data.SqlClient;
 using System.Net.Http.Headers;
 using DapperExtensions;
@@ -82,7 +83,7 @@ namespace SqlScientistTests
     [Test]
     public void CanReadQueryOutputFromSimpleSelect()
     {
-      var comparison = _comparator.CompareQueryOutputs("SELECT 'test1'", "SELECT 'test2'");
+      var comparison = RunComparison("SELECT 'test1'", "SELECT 'test2'");
       comparison.Output1.Rows.Count.ShouldEqual(1);
       comparison.Output1.Rows[0].Values.Count.ShouldEqual(1);
       comparison.Output1.Rows[0].Values[0].ShouldEqual("test1");
@@ -94,7 +95,7 @@ namespace SqlScientistTests
     [Test]
     public void CanReadQueryOutputFromIdenticalSimpleSelect()
     {
-      var comparison = _comparator.CompareQueryOutputs("SELECT 'test1'", "SELECT 'test1'");
+      var comparison = RunComparison("SELECT 'test1'", "SELECT 'test1'");
       comparison.Output1.Rows.Count.ShouldEqual(1);
       comparison.Output1.Rows[0].Values.Count.ShouldEqual(1);
       comparison.Output1.Rows[0].Values[0].ShouldEqual("test1");
@@ -111,7 +112,7 @@ namespace SqlScientistTests
     public void CanReadColumnHeadersFromQuery()
     {
       const string q = "SELECT 'test1' as 'Col1', 1";
-      var comparison = _comparator.CompareQueryOutputs(q, q);
+      var comparison = RunComparison(q, q);
       comparison.Output1.Columns[0].Name.ShouldEqual("Col1");
       comparison.Output1.Columns[0].DataType.ShouldEqual(typeof(string));
       comparison.Output1.Columns[0].SqlDataType.ShouldEqual("varchar");
@@ -127,7 +128,7 @@ namespace SqlScientistTests
     {
       RunSql("CREATE TABLE TestEntity (IntColNullable int NULL)");
       const string q = "SELECT * FROM TestEntity";
-      var comparison = _comparator.CompareQueryOutputs(q, q);
+      var comparison = RunComparison(q, q);
       comparison.Output1.Columns[0].DataType.ShouldEqual(typeof(int));
       comparison.Output1.Columns[0].IsNullable.ShouldBeTrue();
     }
@@ -137,7 +138,7 @@ namespace SqlScientistTests
     {
       RunSql("CREATE TABLE TestEntity (VarCharCol varchar(50))");
       const string q = "SELECT * FROM TestEntity";
-      var comparison = _comparator.CompareQueryOutputs(q, q);
+      var comparison = RunComparison(q, q);
       comparison.Output1.Columns[0].DataType.ShouldEqual(typeof(string));
       comparison.Output1.Columns[0].SqlDataType.ShouldEqual("varchar");
       comparison.Output1.Columns[0].Size.ShouldEqual(50);
@@ -148,7 +149,7 @@ namespace SqlScientistTests
     {
       RunSql("CREATE TABLE TestEntity (VarCharCol varchar(max))");
       const string q = "SELECT * FROM TestEntity";
-      var comparison = _comparator.CompareQueryOutputs(q, q);
+      var comparison = RunComparison(q, q);
       comparison.Output1.Columns[0].DataType.ShouldEqual(typeof(string));
       comparison.Output1.Columns[0].SqlDataType.ShouldEqual("varchar");
       comparison.Output1.Columns[0].Size.ShouldEqual(2147483647);
@@ -158,10 +159,10 @@ namespace SqlScientistTests
     public void GivenColumnsAreSameItReturnsColumnsSame()
     {
       const string q = "SELECT '' as 'C1'";
-      var comparison = _comparator.CompareQueryOutputs(q, q);
-      comparison.ComparisonSummary.ResultsAreIdentical.ShouldBeTrue();
-      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeTrue();
-      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(0);
+      var comparison = RunComparison(q, q);
+      comparison.ResultSetSummary.ResultsAreIdentical.ShouldBeTrue();
+      comparison.ResultSetSummary.ColumnsAreSame.ShouldBeTrue();
+      comparison.ResultSetSummary.ColumnDifferences.Count.ShouldEqual(0);
     }
     
     [Test]
@@ -169,14 +170,14 @@ namespace SqlScientistTests
     {
       const string q1 = "SELECT '' as 'C1'";
       const string q2 = "SELECT '' as 'C2'";
-      var comparison = _comparator.CompareQueryOutputs(q1, q2);
-      comparison.ComparisonSummary.ResultsAreIdentical.ShouldBeFalse();
-      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();
-      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(1);
-      comparison.ComparisonSummary.ColumnDifferences[0].Index.ShouldEqual(0);
-      comparison.ComparisonSummary.ColumnDifferences[0].NameIsDifferent.ShouldBeTrue();
-      comparison.ComparisonSummary.ColumnDifferences[0].TypeIsDifferent.ShouldBeFalse();
-      comparison.ComparisonSummary.ColumnDifferences[0].NullabilityIsDifferent.ShouldBeFalse();
+      var comparison = RunComparison(q1, q2);
+      comparison.ResultSetSummary.ResultsAreIdentical.ShouldBeFalse();
+      comparison.ResultSetSummary.ColumnsAreSame.ShouldBeFalse();
+      comparison.ResultSetSummary.ColumnDifferences.Count.ShouldEqual(1);
+      comparison.ResultSetSummary.ColumnDifferences[0].Index.ShouldEqual(0);
+      comparison.ResultSetSummary.ColumnDifferences[0].NameIsDifferent.ShouldBeTrue();
+      comparison.ResultSetSummary.ColumnDifferences[0].TypeIsDifferent.ShouldBeFalse();
+      comparison.ResultSetSummary.ColumnDifferences[0].NullabilityIsDifferent.ShouldBeFalse();
     }
 
     [Test]
@@ -184,13 +185,13 @@ namespace SqlScientistTests
     {
       const string q1 = "SELECT '' as 'C1', '' AS 'C2'";
       const string q2 = "SELECT '' as 'C1', '' AS 'C3'";
-      var comparison = _comparator.CompareQueryOutputs(q1, q2);
-      comparison.ComparisonSummary.ResultsAreIdentical.ShouldBeFalse();
-      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();      
-      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(1);
-      comparison.ComparisonSummary.ColumnDifferences[0].Index.ShouldEqual(1);
-      comparison.ComparisonSummary.ColumnDifferences[0].NameIsDifferent.ShouldBeTrue();
-      comparison.ComparisonSummary.ColumnDifferences[0].TypeIsDifferent.ShouldBeFalse();
+      var comparison = RunComparison(q1, q2);
+      comparison.ResultSetSummary.ResultsAreIdentical.ShouldBeFalse();
+      comparison.ResultSetSummary.ColumnsAreSame.ShouldBeFalse();      
+      comparison.ResultSetSummary.ColumnDifferences.Count.ShouldEqual(1);
+      comparison.ResultSetSummary.ColumnDifferences[0].Index.ShouldEqual(1);
+      comparison.ResultSetSummary.ColumnDifferences[0].NameIsDifferent.ShouldBeTrue();
+      comparison.ResultSetSummary.ColumnDifferences[0].TypeIsDifferent.ShouldBeFalse();
     }
     
     [Test]
@@ -198,13 +199,13 @@ namespace SqlScientistTests
     {
       const string q1 = "SELECT '0' as 'C1'";
       const string q2 = "SELECT 0 as 'C1'";
-      var comparison = _comparator.CompareQueryOutputs(q1, q2);
-      comparison.ComparisonSummary.ResultsAreIdentical.ShouldBeFalse();
-      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();      
-      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(1);
-      comparison.ComparisonSummary.ColumnDifferences[0].Index.ShouldEqual(0);
-      comparison.ComparisonSummary.ColumnDifferences[0].NameIsDifferent.ShouldBeFalse();
-      comparison.ComparisonSummary.ColumnDifferences[0].TypeIsDifferent.ShouldBeTrue();
+      var comparison = RunComparison(q1, q2);
+      comparison.ResultSetSummary.ResultsAreIdentical.ShouldBeFalse();
+      comparison.ResultSetSummary.ColumnsAreSame.ShouldBeFalse();      
+      comparison.ResultSetSummary.ColumnDifferences.Count.ShouldEqual(1);
+      comparison.ResultSetSummary.ColumnDifferences[0].Index.ShouldEqual(0);
+      comparison.ResultSetSummary.ColumnDifferences[0].NameIsDifferent.ShouldBeFalse();
+      comparison.ResultSetSummary.ColumnDifferences[0].TypeIsDifferent.ShouldBeTrue();
     }
     
     [Test]
@@ -212,13 +213,13 @@ namespace SqlScientistTests
     {
       const string q1 = "SELECT '0' as 'C1'";
       const string q2 = "SELECT 0 as 'C2'";
-      var comparison = _comparator.CompareQueryOutputs(q1, q2);
-      comparison.ComparisonSummary.ResultsAreIdentical.ShouldBeFalse();
-      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();      
-      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(1);
-      comparison.ComparisonSummary.ColumnDifferences[0].Index.ShouldEqual(0);
-      comparison.ComparisonSummary.ColumnDifferences[0].NameIsDifferent.ShouldBeTrue();
-      comparison.ComparisonSummary.ColumnDifferences[0].TypeIsDifferent.ShouldBeTrue();
+      var comparison = RunComparison(q1, q2);
+      comparison.ResultSetSummary.ResultsAreIdentical.ShouldBeFalse();
+      comparison.ResultSetSummary.ColumnsAreSame.ShouldBeFalse();      
+      comparison.ResultSetSummary.ColumnDifferences.Count.ShouldEqual(1);
+      comparison.ResultSetSummary.ColumnDifferences[0].Index.ShouldEqual(0);
+      comparison.ResultSetSummary.ColumnDifferences[0].NameIsDifferent.ShouldBeTrue();
+      comparison.ResultSetSummary.ColumnDifferences[0].TypeIsDifferent.ShouldBeTrue();
     }
 
     [Test]
@@ -229,9 +230,9 @@ namespace SqlScientistTests
         "IntColNullable int NOT NULL"
       );
       
-      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();
-      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(1);
-      comparison.ComparisonSummary.ColumnDifferences[0].NullabilityIsDifferent.ShouldBeTrue();
+      comparison.ResultSetSummary.ColumnsAreSame.ShouldBeFalse();
+      comparison.ResultSetSummary.ColumnDifferences.Count.ShouldEqual(1);
+      comparison.ResultSetSummary.ColumnDifferences[0].NullabilityIsDifferent.ShouldBeTrue();
     }
     
     [Test]
@@ -242,9 +243,9 @@ namespace SqlScientistTests
         "VarCharCol nvarchar(110) NULL"
       );
       
-      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();
-      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(1);
-      comparison.ComparisonSummary.ColumnDifferences[0].SizeIsDifferent.ShouldBeTrue();
+      comparison.ResultSetSummary.ColumnsAreSame.ShouldBeFalse();
+      comparison.ResultSetSummary.ColumnDifferences.Count.ShouldEqual(1);
+      comparison.ResultSetSummary.ColumnDifferences[0].SizeIsDifferent.ShouldBeTrue();
     }
     
     [Test]
@@ -255,9 +256,9 @@ namespace SqlScientistTests
         "VarCharCol varchar(100)"
       );
       
-      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();
-      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(1);
-      comparison.ComparisonSummary.ColumnDifferences[0].TypeIsDifferent.ShouldBeTrue();
+      comparison.ResultSetSummary.ColumnsAreSame.ShouldBeFalse();
+      comparison.ResultSetSummary.ColumnDifferences.Count.ShouldEqual(1);
+      comparison.ResultSetSummary.ColumnDifferences[0].TypeIsDifferent.ShouldBeTrue();
     }
     
     [Test]
@@ -268,10 +269,10 @@ namespace SqlScientistTests
         "VarCharCol varchar(100)"
       );
       
-      comparison.ComparisonSummary.ResultsAreIdentical.ShouldBeFalse();
-      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();
-      comparison.ComparisonSummary.ColumnCountMismatch.ShouldBeTrue();
-      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(0);
+      comparison.ResultSetSummary.ResultsAreIdentical.ShouldBeFalse();
+      comparison.ResultSetSummary.ColumnsAreSame.ShouldBeFalse();
+      comparison.ResultSetSummary.ColumnCountMismatch.ShouldBeTrue();
+      comparison.ResultSetSummary.ColumnDifferences.Count.ShouldEqual(0);
     }
     
     [Test]
@@ -282,20 +283,20 @@ namespace SqlScientistTests
         "VarCharCol varchar(100), IntCol int"
       );
       
-      comparison.ComparisonSummary.ResultsAreIdentical.ShouldBeFalse();
-      comparison.ComparisonSummary.ColumnsAreSame.ShouldBeFalse();
-      comparison.ComparisonSummary.ColumnCountMismatch.ShouldBeTrue();
-      comparison.ComparisonSummary.ColumnDifferences.Count.ShouldEqual(0);
+      comparison.ResultSetSummary.ResultsAreIdentical.ShouldBeFalse();
+      comparison.ResultSetSummary.ColumnsAreSame.ShouldBeFalse();
+      comparison.ResultSetSummary.ColumnCountMismatch.ShouldBeTrue();
+      comparison.ResultSetSummary.ColumnDifferences.Count.ShouldEqual(0);
     }
 
-    private ComparisonResult CompareTablesWithTheseColumns(string col1, string col2)
+    private ResultSetComparisonResult CompareTablesWithTheseColumns(string col1, string col2)
     {
       RunSql($"CREATE TABLE TestEntity1 ({col1})");
       RunSql($"CREATE TABLE TestEntity2 ({col2})");
       const string q1 = "SELECT * FROM TestEntity1";
       const string q2 = "SELECT * FROM TestEntity2";
 
-      var comparison = _comparator.CompareQueryOutputs(q1, q2);
+      var comparison = RunComparison(q1, q2);
       return comparison;
     }
 
@@ -306,9 +307,9 @@ namespace SqlScientistTests
     [Test]
     public void OutputsCellInformationForIncorrectData()
     {
-      var comparison = _comparator.CompareQueryOutputs("SELECT 'test1' as 'Col1'", "SELECT 'test2' as 'Col1'");
-      comparison.ComparisonSummary.DataDifferences.Count.ShouldEqual(1);
-      var firstRowDifference = comparison.ComparisonSummary.DataDifferences[0];
+      var comparison = RunComparison("SELECT 'test1' as 'Col1'", "SELECT 'test2' as 'Col1'");
+      comparison.ResultSetSummary.DataDifferences.Count.ShouldEqual(1);
+      var firstRowDifference = comparison.ResultSetSummary.DataDifferences[0];
       firstRowDifference.RowIndex.ShouldEqual(0);
       var firstRowCellDifferences = firstRowDifference.CellDifferences;
       firstRowCellDifferences.Count.ShouldEqual(1);
@@ -318,14 +319,13 @@ namespace SqlScientistTests
     [Test]
     public void OutputsCellInformationForIncorrectDataInNonZeroIndexes()
     {
-      var comparison = _comparator.CompareQueryOutputs(
+      var comparison = RunComparison(
         "SELECT 'V1' as 'Col1', 'V2' as 'Col2' UNION ALL " +
-        "SELECT 'V3' as 'Col1', 'V4' as 'Col2'",
-        
+        "SELECT 'V3' as 'Col1', 'V4' as 'Col2'", 
         "SELECT 'V1' as 'Col1', 'V2' as 'Col2' UNION ALL " +
         "SELECT 'V3' as 'Col1', 'WRONG' as 'Col2'");
-      comparison.ComparisonSummary.DataDifferences.Count.ShouldEqual(1);
-      var firstRowDifference = comparison.ComparisonSummary.DataDifferences[0];
+      comparison.ResultSetSummary.DataDifferences.Count.ShouldEqual(1);
+      var firstRowDifference = comparison.ResultSetSummary.DataDifferences[0];
       firstRowDifference.RowIndex.ShouldEqual(1);
       var firstRowCellDifferences = firstRowDifference.CellDifferences;
       firstRowCellDifferences.Count.ShouldEqual(1);
@@ -333,16 +333,76 @@ namespace SqlScientistTests
     }
 
     #endregion
+
+    #region Parameterisation
+
+    [Test]
+    public void CanParameterizeAQuery()
+    {
+      var comparison = _comparator.CompareQueryOutputs(new ComparisonInput("SELECT @param1", "SELECT @param1 + '2'")
+      {
+        QueryParameters = new List<ComparisonParameter>
+        {
+          new ComparisonParameter("param1", "Test1")
+        }
+      }).ResultSetComparisons[0];
+      
+      comparison.ResultSetSummary.ResultsAreIdentical.ShouldBeFalse();
+      comparison.Output1.Rows[0].Values[0].ShouldEqual("Test1");
+      comparison.Output2.Rows[0].Values[0].ShouldEqual("Test12");
+    }
+
+    #endregion
+
+    #region Multiple result sets
+
+    [Test]
+    public void CanFailOnSecondResultSet()
+    {
+      var comparison = _comparator.CompareQueryOutputs(new ComparisonInput(
+        "SELECT 'test'; SELECT 'test'", 
+        "SELECT 'test'; SELECT 'test2'"
+        )
+      );
+      
+      comparison.ResultsAreIdentical.ShouldBeFalse();
+      comparison.ResultSetComparisons.Count.ShouldEqual(2);
+      comparison.ResultSetComparisons[0].ResultSetSummary.ResultsAreIdentical.ShouldBeTrue();
+      comparison.ResultSetComparisons[1].ResultSetSummary.ResultsAreIdentical.ShouldBeFalse();
+      comparison.ResultSetComparisons[1].Output2.Rows[0].Values[0].ShouldEqual("test2");
+    }
+
+    [Test]
+    public void CanCompareMultipleIdenticalResultSets()
+    {
+      var comparison = _comparator.CompareQueryOutputs(new ComparisonInput(
+          "SELECT 'test'; SELECT 'test'", 
+          "SELECT 'test'; SELECT 'test'"
+        )
+      );
+      
+      comparison.ResultsAreIdentical.ShouldBeTrue();
+      comparison.ResultSetComparisons.Count.ShouldEqual(2);
+      comparison.ResultSetComparisons[0].ResultSetSummary.ResultsAreIdentical.ShouldBeTrue();
+      comparison.ResultSetComparisons[1].ResultSetSummary.ResultsAreIdentical.ShouldBeTrue();
+    }
+
+    #endregion
     
     // TODO: Row count mismatch show missing rows from query 1
     // TODO: Row count mistmatch show missing rows from query 2
-    // TODO: 
+    // TODO: Precision
     private bool AreSame(string q1, string q2)
     {
-      var comparisonSummary = _comparator.CompareQueryOutputs(q1, q2).ComparisonSummary;
+      var comparisonSummary = RunComparison(q1, q2).ResultSetSummary;
       return comparisonSummary.ResultsAreIdentical;
     }
 
+    private ResultSetComparisonResult RunComparison(string q1, string q2)
+    {
+      return _comparator.CompareQueryOutputs(new ComparisonInput(q1, q2)).ResultSetComparisons[0];
+    }
+    
     private void RunSql(string query)
     {
       using (var c = new SqlCommand(query, _connection))
@@ -355,5 +415,11 @@ namespace SqlScientistTests
     {
       return new SqlCommand(query);
     }
+
+    public object CreateCommandParameter(string name, object value)
+    {
+      return new SqlParameter(name, value);
+    }
+
   }
 }

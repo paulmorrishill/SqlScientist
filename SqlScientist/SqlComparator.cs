@@ -17,50 +17,64 @@ namespace SqlScientist
       _connection = connection;
     }
     
-    public ComparisonResult CompareQueryOutputs(string query1, string query2)
+    public QueryComparison CompareQueryOutputs(ComparisonInput comparisonInput)
     {
-      using(var command1 = _commandFactory.CreateCommand(query1))
-      using (var command2 = _commandFactory.CreateCommand(query2))
+      var resultSetComparisons = new List<ResultSetComparisonResult>();
+      using(var command1 = _commandFactory.CreateCommand(comparisonInput.Query1))
+      using (var command2 = _commandFactory.CreateCommand(comparisonInput.Query2))
       {
-        const string returnParam = "@returnValue";
-        var returnValueParam1 = new SqlParameter(returnParam, SqlDbType.Int);
-        returnValueParam1.Direction = ParameterDirection.ReturnValue;
-        var returnValueParam2 = new SqlParameter(returnParam, SqlDbType.Int);
-        returnValueParam2.Direction = ParameterDirection.ReturnValue;
+        ConfigureCommand(command1, comparisonInput.QueryParameters);
+        ConfigureCommand(command2, comparisonInput.QueryParameters);
 
-        command1.Connection = _connection;
-        command2.Connection = _connection;
+        var command1ResultSets = ReadOutput(command1);
+        var command2ResultSets = ReadOutput(command2);
 
-        command1.Parameters.Add(returnValueParam1);
-        command2.Parameters.Add(returnValueParam2);
-
-        var command1Output = ReadOutput(command1);
-        var command2Output = ReadOutput(command2);
-
-        var summary = new ComparisonSummary
+        for (var set = 0; set < command1ResultSets.Count; set++)
         {
-          ColumnsAreSame = true,
-          ResultsAreIdentical = true
-        };
+          var command1ResultSet = command1ResultSets[set];
+          var command2ResultSet = command2ResultSets[set];
+          
+          var summary = new ResultSetComparisonSummary
+          {
+            ColumnsAreSame = true,
+            ResultsAreIdentical = true
+          };
         
-        var comparisonOutput = new ComparisonResult
+          var comparisonOutput = new ResultSetComparisonResult
+          {
+            Output1 = command1ResultSet,
+            Output2 = command2ResultSet,
+            ResultSetSummary = summary
+          };
+
+          CompareColumnHeadersAndApplyToSummary(command1ResultSet, command2ResultSet, summary);
+          CompareDataAndApplyToSummary(command1ResultSet, command2ResultSet, summary);
+          
+          resultSetComparisons.Add(comparisonOutput);
+        }
+
+        var allResultSetsIdentical = resultSetComparisons.TrueForAll(r => r.ResultSetSummary.ResultsAreIdentical);
+        
+        return new QueryComparison
         {
-          Output1 = command1Output,
-          Output2 = command2Output,
-          ComparisonSummary = summary
+          ResultsAreIdentical = allResultSetsIdentical,
+          ResultSetComparisons = resultSetComparisons
         };
-
-        CompareColumnHeadersAndApplyToSummary(command1Output, command2Output, summary);
-        //var result1 = returnValueParam1.Value;
-        //var result2 = returnValueParam2.Value;
-        CompareDataAndApplyToSummary(command1Output, command2Output, summary);
-
-        return comparisonOutput;
       }
     }
 
-    private static void CompareDataAndApplyToSummary(QueryOutput command1Output, QueryOutput command2Output,
-      ComparisonSummary summary)
+    private void ConfigureCommand(IDbCommand command1,
+      List<ComparisonParameter> comparisonInputQuery1Parameters)
+    {
+      command1.Connection = _connection;
+      foreach (var param in comparisonInputQuery1Parameters)
+      {
+        command1.Parameters.Add(_commandFactory.CreateCommandParameter(param.Name, param.Value));
+      }
+    }
+
+    private static void CompareDataAndApplyToSummary(ResultSet command1Output, ResultSet command2Output,
+      ResultSetComparisonSummary summary)
     {
       for (var rowIndex = 0; rowIndex < command1Output.Rows.Count; rowIndex++)
       {
@@ -88,8 +102,8 @@ namespace SqlScientist
       }
     }
 
-    private static void CompareColumnHeadersAndApplyToSummary(QueryOutput command1Output, QueryOutput command2Output,
-      ComparisonSummary summary)
+    private static void CompareColumnHeadersAndApplyToSummary(ResultSet command1Output, ResultSet command2Output,
+      ResultSetComparisonSummary summary)
     {
       var command1ColumnCount = command1Output.Columns.Count;
       var command2ColumnCount = command2Output.Columns.Count;
@@ -142,47 +156,60 @@ namespace SqlScientist
       return (int) result1 == (int) result2;
     }
 
-    private static QueryOutput ReadOutput(IDbCommand command1)
+    private static List<ResultSet> ReadOutput(IDbCommand command1)
     {
-      var rows = new List<QueryRow>();
-      var headers = new List<ColumnInfo>();
+      var outputSets = new List<ResultSet>();
       using (var reader = command1.ExecuteReader())
       {
-        var headerTable = reader.GetSchemaTable();
-        for (var headerIndex = 0; headerIndex < headerTable.Rows.Count; headerIndex++)
+        do
         {
-          var column = headerTable.Rows[headerIndex];
-          var columnName = column["ColumnName"].ToString();
-          var allowsNull = (bool)column["AllowDBNull"];
-          var type = reader.GetDataTypeName(headerIndex);
-          var columnSize = (int)column["ColumnSize"];
-          
-          headers.Add(new ColumnInfo
+          var resultSet = new ResultSet();
+          PopulateHeadersFromReader(reader, resultSet.Columns);
+          while (reader.Read())
           {
-            Name = columnName,
-            SqlDataType = type,
-            IsNullable = allowsNull,
-            Size = columnSize,
-            DataType = Assembly.GetAssembly(typeof(string)).GetType(column["DataType"].ToString())
-          });
-        }
-        
-        while (reader.Read())
-        {
-          var result1 = new List<object>();
-          for (var column = 0; column < reader.FieldCount; column++)
-          {
-            result1.Add(reader.GetValue(column));
+            var result1 = new List<object>();
+            for (var column = 0; column < reader.FieldCount; column++)
+            {
+              result1.Add(reader.GetValue(column));
+            }
+
+            resultSet.Rows.Add(new QueryRow(result1));
           }
-          rows.Add(new QueryRow(result1));
-        }
+          outputSets.Add(resultSet);
+        } while (reader.NextResult());
       }
 
-      return new QueryOutput
-      {
-        Rows = rows,
-        Columns = headers
-      };
+      return outputSets;
     }
+
+    private static void PopulateHeadersFromReader(IDataReader reader, List<ColumnInfo> headers)
+    {
+      var headerTable = reader.GetSchemaTable();
+      if (headerTable == null)
+        return;
+      for (var headerIndex = 0; headerIndex < headerTable.Rows.Count; headerIndex++)
+      {
+        var column = headerTable.Rows[headerIndex];
+        var columnName = column["ColumnName"].ToString();
+        var allowsNull = (bool) column["AllowDBNull"];
+        var type = reader.GetDataTypeName(headerIndex);
+        var columnSize = (int) column["ColumnSize"];
+
+        headers.Add(new ColumnInfo
+        {
+          Name = columnName,
+          SqlDataType = type,
+          IsNullable = allowsNull,
+          Size = columnSize,
+          DataType = Assembly.GetAssembly(typeof(string)).GetType(column["DataType"].ToString())
+        });
+      }
+    }
+  }
+
+  public class QueryComparison
+  {
+    public List<ResultSetComparisonResult> ResultSetComparisons { get; set; }
+    public bool ResultsAreIdentical { get; set; }
   }
 }
