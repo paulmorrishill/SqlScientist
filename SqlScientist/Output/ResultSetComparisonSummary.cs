@@ -10,5 +10,6 @@ namespace SqlScientist
     public List<ColumnDifference> ColumnDifferences { get; } = new List<ColumnDifference>();
     public bool ColumnCountMismatch { get; set; }
     public List<RowDifference> DataDifferences { get; set; } = new List<RowDifference>();
+    public bool RowCountMismatch { get; set; }
   }
 }

@@ -6,15 +6,21 @@ using System.Reflection;
 
 namespace SqlScientist
 {
+  public interface IDatabaseConnectionProvider
+  {
+    IDbConnection GetConnection1();
+    IDbConnection GetConnection2();
+  }
+  
   public class SqlComparator
   {
-    private IDbConnection _connection;
+    private IDatabaseConnectionProvider _connectionProvider;
     private ISqlCommandFactory _commandFactory;
 
-    public SqlComparator(IDbConnection connection, ISqlCommandFactory commandFactory)
+    public SqlComparator(IDatabaseConnectionProvider connectionProviderProvider, ISqlCommandFactory commandFactory)
     {
       _commandFactory = commandFactory;
-      _connection = connection;
+      _connectionProvider = connectionProviderProvider;
     }
     
     public QueryComparison CompareQueryOutputs(ComparisonInput comparisonInput)
@@ -29,7 +35,9 @@ namespace SqlScientist
         var command1ResultSets = ReadOutput(command1);
         var command2ResultSets = ReadOutput(command2);
 
-        for (var set = 0; set < command1ResultSets.Count; set++)
+        var leastResultSets = Math.Min(command1ResultSets.Count, command2ResultSets.Count);
+        
+        for (var set = 0; set < leastResultSets; set++)
         {
           var command1ResultSet = command1ResultSets[set];
           var command2ResultSet = command2ResultSets[set];
@@ -54,11 +62,13 @@ namespace SqlScientist
         }
 
         var allResultSetsIdentical = resultSetComparisons.TrueForAll(r => r.ResultSetSummary.ResultsAreIdentical);
+        var resultSetCountMismatch = command1ResultSets.Count != command2ResultSets.Count;
         
         return new QueryComparison
         {
-          ResultsAreIdentical = allResultSetsIdentical,
-          ResultSetComparisons = resultSetComparisons
+          ResultsAreIdentical = allResultSetsIdentical && !resultSetCountMismatch,
+          ResultSetComparisons = resultSetComparisons,
+          ResultSetCountsAreNotSame = resultSetCountMismatch
         };
       }
     }
@@ -66,7 +76,7 @@ namespace SqlScientist
     private void ConfigureCommand(IDbCommand command1,
       List<ComparisonParameter> comparisonInputQuery1Parameters)
     {
-      command1.Connection = _connection;
+      command1.Connection = _connectionProvider.GetConnection1();
       foreach (var param in comparisonInputQuery1Parameters)
       {
         command1.Parameters.Add(_commandFactory.CreateCommandParameter(param.Name, param.Value));
@@ -76,7 +86,8 @@ namespace SqlScientist
     private static void CompareDataAndApplyToSummary(ResultSet command1Output, ResultSet command2Output,
       ResultSetComparisonSummary summary)
     {
-      for (var rowIndex = 0; rowIndex < command1Output.Rows.Count; rowIndex++)
+      var smallestRows = Math.Min(command1Output.Rows.Count, command2Output.Rows.Count);
+      for (var rowIndex = 0; rowIndex < smallestRows; rowIndex++)
       {
         var row1 = command1Output.Rows[rowIndex];
         var row2 = command2Output.Rows[rowIndex];
@@ -98,6 +109,12 @@ namespace SqlScientist
             });
             summary.DataDifferences.Add(rowDifference);
           }
+        }
+
+        if (command1Output.Rows.Count != command2Output.Rows.Count)
+        {
+          summary.ResultsAreIdentical = false;
+          summary.RowCountMismatch = true;
         }
       }
     }
@@ -211,5 +228,6 @@ namespace SqlScientist
   {
     public List<ResultSetComparisonResult> ResultSetComparisons { get; set; }
     public bool ResultsAreIdentical { get; set; }
+    public bool ResultSetCountsAreNotSame { get; set; }
   }
 }

@@ -6,6 +6,5 @@ namespace SqlScientist
   {
     IDbCommand CreateCommand(string query);
     object CreateCommandParameter(string name, object value);
-
   }
 }

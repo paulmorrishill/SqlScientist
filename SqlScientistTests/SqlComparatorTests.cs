@@ -9,7 +9,7 @@ using SqlScientist;
 
 namespace SqlScientistTests
 {
-  public class SqlComparatorTests : ISqlCommandFactory
+  public class SqlComparatorTests : ISqlCommandFactory, IDatabaseConnectionProvider
   {
     private SqlComparator _comparator;
     private SqlConnection _connection;
@@ -22,7 +22,7 @@ namespace SqlScientistTests
       RunSql("DROP DATABASE IF EXISTS sql_scientist_test");
       RunSql("CREATE DATABASE sql_scientist_test");
       RunSql("USE sql_scientist_test");
-      _comparator = new SqlComparator(_connection, this);
+      _comparator = new SqlComparator(this, this);
     }
 
     [TearDown]
@@ -31,6 +31,7 @@ namespace SqlScientistTests
       _connection.Close();
       _connection.Dispose();
     }
+    
     #region "Simple comparisons"
     [Test]
     public void CanCompareSingleIntegerSelectsWhenTheyAreIdentical()
@@ -332,6 +333,32 @@ namespace SqlScientistTests
       firstRowCellDifferences[0].ColumnIndex.ShouldEqual(1);
     }
 
+    [Test]
+    public void OutputsMissingRowsWhenResultCountsMismatch()
+    {
+      var comparison = RunComparison(
+        "SELECT 'V1' as 'Col1' UNION ALL SELECT 'V2'",
+        "SELECT 'V1' as 'Col1'"
+      );
+      comparison.ResultSetSummary.ResultsAreIdentical.ShouldBeFalse();
+      comparison.ResultSetSummary.RowCountMismatch.ShouldBeTrue();
+      comparison.ResultSetSummary.DataDifferences.Count.ShouldEqual(0);
+    }
+    
+    [Test]
+    public void WhenRowsSameFlagsAreFalse()
+    {
+      var comparison = RunComparison(
+        "SELECT 'V1'",
+        "SELECT 'V1'"
+      );
+      comparison.ResultSetSummary.ResultsAreIdentical.ShouldBeTrue();
+      comparison.ResultSetSummary.RowCountMismatch.ShouldBeFalse();
+      comparison.ResultSetSummary.DataDifferences.Count.ShouldEqual(0);
+    }
+    
+    // TODO: Primary key matching
+    
     #endregion
 
     #region Parameterisation
@@ -385,12 +412,25 @@ namespace SqlScientistTests
       comparison.ResultSetComparisons.Count.ShouldEqual(2);
       comparison.ResultSetComparisons[0].ResultSetSummary.ResultsAreIdentical.ShouldBeTrue();
       comparison.ResultSetComparisons[1].ResultSetSummary.ResultsAreIdentical.ShouldBeTrue();
+      comparison.ResultSetCountsAreNotSame.ShouldBeFalse();
     }
 
+    [Test]
+    public void OneQueryProducesMoreResultSetsThanTheOther()
+    {
+      var comparison = _comparator.CompareQueryOutputs(new ComparisonInput(
+          "SELECT 'test'; SELECT 'test'", 
+          "SELECT 'test';"
+        )
+      );
+      
+      comparison.ResultsAreIdentical.ShouldBeFalse();
+      comparison.ResultSetComparisons.Count.ShouldEqual(1);
+      comparison.ResultSetCountsAreNotSame.ShouldBeTrue();
+    }
+    
     #endregion
     
-    // TODO: Row count mismatch show missing rows from query 1
-    // TODO: Row count mistmatch show missing rows from query 2
     // TODO: Precision
     private bool AreSame(string q1, string q2)
     {
@@ -421,5 +461,14 @@ namespace SqlScientistTests
       return new SqlParameter(name, value);
     }
 
+    public IDbConnection GetConnection1()
+    {
+      return _connection;
+    }
+
+    public IDbConnection GetConnection2()
+    {
+      return _connection;
+    }
   }
 }
