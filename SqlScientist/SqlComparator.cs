@@ -6,13 +6,12 @@ using System.Reflection;
 
 namespace SqlScientist
 {
-  public interface IDatabaseConnectionProvider
+  public interface ISqlComparator
   {
-    IDbConnection GetConnection1();
-    IDbConnection GetConnection2();
+    QueryComparison CompareQueryOutputs(ComparisonInput comparisonInput);
   }
-  
-  public class SqlComparator
+
+  public class SqlComparator : ISqlComparator
   {
     private IDatabaseConnectionProvider _connectionProvider;
     private ISqlCommandFactory _commandFactory;

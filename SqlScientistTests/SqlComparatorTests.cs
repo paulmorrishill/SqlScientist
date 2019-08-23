@@ -32,7 +32,7 @@ namespace SqlScientistTests
       _connection.Dispose();
     }
     
-    #region "Simple comparisons"
+    #region Simple comparisons
     [Test]
     public void CanCompareSingleIntegerSelectsWhenTheyAreIdentical()
     {
@@ -107,7 +107,7 @@ namespace SqlScientistTests
 
     #endregion
 
-    #region "Column headers"
+    #region Column headers
     
     [Test]
     public void CanReadColumnHeadersFromQuery()
@@ -366,13 +366,13 @@ namespace SqlScientistTests
     [Test]
     public void CanParameterizeAQuery()
     {
-      var comparison = _comparator.CompareQueryOutputs(new ComparisonInput("SELECT @param1", "SELECT @param1 + '2'")
+      var comparison = _comparator.CompareQueryOutputs(new ComparisonInput(
+        "SELECT @param1", 
+        "SELECT @param1 + '2'",
+        new List<ComparisonParameter>
       {
-        QueryParameters = new List<ComparisonParameter>
-        {
-          new ComparisonParameter("param1", "Test1")
-        }
-      }).ResultSetComparisons[0];
+        new ComparisonParameter("param1", "Test1")
+      })).ResultSetComparisons[0];
       
       comparison.ResultSetSummary.ResultsAreIdentical.ShouldBeFalse();
       comparison.Output1.Rows[0].Values[0].ShouldEqual("Test1");
