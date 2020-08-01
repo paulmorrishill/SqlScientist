@@ -5,6 +5,5 @@ namespace SqlScientist
   public interface IDatabaseConnectionProvider
   {
     IDbConnection GetConnection1();
-    IDbConnection GetConnection2();
   }
 }

@@ -4,7 +4,12 @@ using SqlScientist.Parameterization;
 
 namespace SqlScientist
 {
-  public class ExperimentRunner
+  public interface IExperimentRunner
+  {
+    ExperimentResult RunExperiment(string query1, string query2, List<ComparisonParameterCollection> parameterCollections);
+  }
+
+  public class ExperimentRunner : IExperimentRunner
   {
     private ISqlComparator _comparator;
 
@@ -28,11 +33,6 @@ namespace SqlScientist
         QueryComparisons = queryOutputs
       };  
     }
-  }
-
-  public class ExperimentConfiguration
-  {
-    
   }
 
   public class ExperimentResult
